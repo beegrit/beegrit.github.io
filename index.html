@@ -1,0 +1,1296 @@
+<html>
+<head>
+<script language="javascript">
+
+/*
+YOU MAY EDIT THESE LINES TO CUSTOMIZE THE GAME.
+*/
+
+
+var qTimeLimit = 5000;	//	Time limit on questions in milliseconds. Default is 3500 milliseconds (3.5 seconds).
+var dailyDoubleTimeout = 10000;
+var lockoutTime = 333;	//	Penalty lockout time for early buzzing. Default is 333 milliseconds (1/3 of a second).
+var lightOffColor = "#CCCCCC"; //Color of lights when not lit
+var lightOnColor = "#FF0000"; //Color of lights when lit
+var lecternColor = "#071183"; //Color of lectern screen background
+var lecternTextColor = "#FFFFFF"; //Color of lectern text
+var currentClueColor = "#FFFF00"; //Color of current clue on key
+var selectedClueColor = "#CCCCCC";	//Color of previously selected clue on key
+var highlightedClueColor = "#CC99FF";	//Color of highlighted clue on key
+var buzzedInPlayerColor = "#99FF66";	//Color of currently buzzed in player on key
+/*
+This array controls the distribution of Daily Doubles. The first element is the relative probability that a DD appears in the top clue of a category, and the last element is the
+relative probability that a DD appears in the last clue. For example, [1,1,1,1,1] would be an even distribution, and [1,2,2,3,2] would mean that on average, for every 10 (1+2+2+3+2)
+daily doubles, 1 will be in the top row, 2 will be in the second row, and so on, 2 will be in row 3, 3 will be in row 4, and 2 will be in the last row. Default value is [1,104,265,365,265]
+based on historical data.
+*/
+var DDDist = [1,104,265,365,265];	//	Distribution of daily doubles. Left-to-right, the weight of the probability that a daily double will be found in a certain row. Default is 1,104,265,365,265.
+
+
+/*
+**************************************************************
+DO NOT EDIT ANYTHING BELOW THIS LINE UNLESS YOU REALLY MEAN IT
+**************************************************************
+*/
+
+debug = 0;
+
+/*
+Key values
+*/
+var keyValues = ["","","","","","","","","Backspace","Tab","","","","Enter","","","Shift","Ctrl","Alt","Pause/Break","Caps Lock","","","","","","","Escape","Page Up","Page down","End","Home",
+"Left","Up","Right","Down","","","","","Insert","Delete","","0","1","2","3","4","5","6","7","8","9","","","","","","","","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"];
+
+/*
+State values
+-1 - file upload view
+0 - lectern view, waiting on player responses
+1 - lectern view, player has buzzed in
+2 - board view
+3 - clue view
+4 - FJ category view 1
+5 - FJ lectern view
+6 - FJ category view 2
+7 - FJ clue view
+8 - FJ clue active
+9 - Final lectern view
+10 - Daily double screen view
+11 - Daily double category view
+12 - Daily double lectern view
+13 - Daily double clue view
+14 - Daily double clue active
+15 - Daily double result view
+16 - Waiting at lectern view
+*/
+var state = 0;
+var turn = 0;
+var qValue;
+var lastBuzz;
+var hostBuzzer = 0;
+var pStates = [0,0,0];	//player states - 0 indicates eligible to buzz, 1 indicates that player has buzzed and is ineligible until the next reset
+var playerNames = ["","",""]; 	//	Player names
+var clueActive;			//Whether a clue is active or not.
+var timeOutBuzz			//Time out buzzer thread
+var lastSelectedCell;
+var scores;
+var round;
+var cluesLeft;
+var lightsOff;
+var jpAns;
+var jp2Ans;
+var selectedCat;
+var selectedClue;
+var ddText;
+
+var jddCol;		//	Column containing DD in round 1
+var jddRow;		//	Row containing DD in round 1
+var j2ddCol1;	//	Column containing first DD in round 2
+var j2ddCol2;	//	Column containing second DD in round 2
+var j2ddRow1;	//	Row containing first DD in round 2
+var j2ddRow2;	//	Row containing second DD in round 2
+
+
+var clueFont = "Korinna BT";
+var clueSize = "100px";
+var catFont = "Haettenschweiler";
+var catSize = "300px";
+
+var cluesPerRound = 30;	//	Number of clues to play per round. Set to 1 for debug (and fast testing), 30 for full games.
+var resetAll = 16; //this key resets all lights and allows all players to buzz in. 16 = Shift. Do not use backspace, enter, or spacebar (8, 13, or 32) here.
+var resetOne = 17; //this key resets all lights and keeps players locked out if they've buzzed since the last reset-all command. 17 = Ctrl. Do not use enter or spacebar (13 or 32) here.
+var boardView = 40; //this key moves to the board view when no player is currently locked out (or currently answering the question). 66 = "B"
+var correct = 67; //this key designates the last answer as correct, and awards the points for the last question selected to the last player who buzzed in. 67 = "C"
+var incorrect = 88; //this key designates the last answer as incorrect, and subtracts the points for the last question selected from the last player who buzzed in. 88 = "X"
+var openAnsKey = 75;	//this key opens the current round's answer key. 75 = K
+
+var resetAllKey = keyValues[resetAll];
+var resetOneKey = keyValues[resetOne];
+var boardViewKey = keyValues[boardView];
+var correctKey = keyValues[correct];
+var incorrectKey = keyValues[incorrect];
+
+
+
+
+var lecterns;
+var board;
+var clue;
+var fileLoad;
+var clueScreen1;
+var clueScreen2;
+var categoryReminder;
+var valueReminder;
+var clueReminder;
+var elements;
+
+
+var jp1 = [["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""]];
+var jp1Key = [["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""]];
+var jp1a = [["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""]];
+var jp2 = [["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""]];
+var jp2Key = [["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""]];
+var jp2a = [["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""],["","","","","",""]];
+var lockouts = [null,null,null];
+var jp1cells = [[null,null,null,null,null,null],[null,null,null,null,null,null],[null,null,null,null,null,null],[null,null,null,null,null,null],[null,null,null,null,null,null],[null,null,null,null,null,null]];
+var jp2cells = [[null,null,null,null,null,null],[null,null,null,null,null,null],[null,null,null,null,null,null],[null,null,null,null,null,null],[null,null,null,null,null,null],[null,null,null,null,null,null]];
+var fjcat;
+var fjclue;
+var fjresp;
+
+window.onkeydown = function(e) {
+	var key = e.keyCode ? e.keyCode : e.which;
+	var myWindow = (round == 1 ? jpAns : jp2Ans);
+/*
+Pop up window for key stroke. For debugging only.
+*/
+if (debug==1) {
+	alert(key + " " + state + "\n" + pStates[0] + " " + pStates[1] + " " + pStates[2]);
+}
+
+/*
+lectern view, either waiting or someone has buzzed
+*/
+	if (key == openAnsKey) {
+		openAnswerKey(round);
+	} else if (state == 0 || state ==1) {
+		if (clueActive == 1 && (key == 37 || key == 38 || key == 39 || key == resetOne || key == resetAll || key == correct || key == incorrect)) {	//	If the key pressed is a buzz key or a reset key
+			if (key==resetAll && pStates[0] != 0 && pStates[1] != 0 && pStates[2] != 0) {	//If it was the reset-all command and all buzzers have been deactivated
+				resetLecterns();
+			/*
+			Otherwise, if waiting and one of the arrows was pressed
+			*/
+			} else if (state==0 && key >= 37 && key <=39 && clueActive == 1) {
+				var n = key - 37;
+				if (pStates[n] == 0) {	//Check if the player is eligible to buzz
+					state = 1;			//Set the game state to indicate that a player has buzzed
+					lastBuzz = n;
+					clearTimeout(timeOutBuzz);		//	Pause the timeout timer
+					pStates[n] = 1;		//Make the player ineligible to buzz until a reset
+					light(n+1);			//Light the player lectern
+
+					if (myWindow != null && !myWindow.closed) {
+						myWindow.document.getElementById("p" + (lastBuzz+1) + "name").style.background=buzzedInPlayerColor;
+					}
+				}
+			} else if ((key==correct || key==incorrect) && clueActive == 1 && lastBuzz != -1 && (state==1 || (state==0 && pStates[lastBuzz] != 2))) {
+				key == correct ? addScore(lastBuzz,qValue) : addScore(lastBuzz,-qValue);
+				if (key == correct) {
+					resetLecterns();
+					setTimeout(function(){state=2;resetLecterns();viewBoard();},1000);	//	Wait 1 seconds to show scores then go to board
+				} else if (key == incorrect) {
+					allLightsOff();
+					state = 0;
+					if (pStates[0] == 0 || pStates[1] == 0 || pStates[2] == 0) {
+						timeOutBuzz = setTimeout(function() {timeUp();},qTimeLimit);
+					}
+				}
+				pStates[lastBuzz] = 2;
+				if (myWindow != null && !myWindow.closed) {
+					myWindow.document.getElementById("p" + (lastBuzz + 1) + "name").style.background="#FFFFFF";
+				}
+			} else if (state==1) {		//Player has buzzed
+				if (key==resetOne) {	//If the key is the reset-one key
+					allLightsOff();		//Turn off player lectern. Player remains ineligible to buzz
+					if (myWindow != null && !myWindow.closed) {
+						myWindow.document.getElementById("p" + (lastBuzz + 1) + "name").style.background="#FFFFFF";
+					}
+					state=0;			//return game state to waiting for another buzz.
+					if (pStates[0] == 0 || pStates[1] == 0 || pStates[2] == 0) {
+						timeOutBuzz = setTimeout(function(){timeUp();},qTimeLimit);	//Start the timeout timer again.
+					} else {
+						clueActive = 0;
+					}
+				}
+			}
+		} else if (key == boardView && state == 0 && pStates[0] == 0 && pStates[1] == 0 && pStates[2] == 0 && clueActive==0) {
+			state = 2;
+			viewBoard();
+		} else if (key == boardView && state == 0 && clueActive==0) {
+			state = 2;
+			resetLecterns();
+			viewBoard();
+		}
+
+	} else if (state == 2) {
+
+	} else if (state == 3) {
+		if (key == 40 && hostBuzzer == 0) {
+			viewLecterns();
+			clueActive = 1;
+			timeOutBuzz = setTimeout(function(){timeUp();},qTimeLimit);
+		} else if (key == 37 || key == 38 || key == 39) {
+			pStates[key-37] = 1;
+			if (lockouts[key-37]) {
+				clearTimeout(lockouts[key-37]);
+			}
+			lockouts[key-37] = setTimeout(function() {pStates[key-37] = 0;},lockoutTime);
+		}
+	} else if (state == 4) {
+		if (key == 40) {
+			viewLecterns();
+			clueActive = -1;
+			state = 5;
+		}
+	} else if (state == 5) {
+		if (key == 40) {
+			viewClue(0,0,0);
+			/*
+			clueScreen1.style.color="#FFFFFF";
+			clueScreen1.style.background="#000097";
+			clueScreen1.style.fontSize = catSize;
+			clueScreen1.style.fontFamily = catFont;
+			clueScreen2.innerHTML = fjcat;
+			*/
+			state = 6;
+			document.getElementById("fj").play();
+			setTimeout(function() {
+				viewClue(0,0,0);
+				clueScreen1.style.color="#FFFFFF";
+				clueScreen1.style.background="#000097";
+				clueScreen1.style.fontSize = clueSize;
+				clueScreen1.style.fontFamily = clueFont;
+				clueScreen2.innerHTML = fjclue.toUpperCase();
+				state = 7;
+			},2000);
+		}
+	} else if (state == 6) {
+
+	} else if (state == 7) {
+		if (key == 40) {
+			state = 8;
+			clueActive = 0;
+			document.getElementById("think").play();
+			setTimeout(function() {
+				viewLecterns();
+				clueActive = -1;
+			},34000);
+		}
+	} else if (state == 8) {
+
+	} else if (state == 9) {
+
+	} else if (state == 10) {
+
+	} else if (state == 11) {
+		if (key == 40) {
+			clueActive = 0;
+			viewLecterns();
+			state = 12;
+		}
+	} else if (state == 12) {
+		if (key == 40) {
+			clueScreen1.style.color="#FFFFFF";
+			clueScreen1.style.fontSize = clueSize;
+			clueScreen1.style.fontFamily = clueFont;
+			clueScreen2.innerHTML = (round==1 ? jp1[selectedCat][selectedClue] : jp2[selectedCat][selectedClue]).toUpperCase();
+			round == 1 ? jp1[selectedCat][selectedClue] = "" : jp2[selectedCat][selectedClue] = "";
+			viewClue(0,0,0);
+			hostBuzzer = 0;
+			state = 13;
+		}
+	} else if (state == 13) {
+		if (key == 40) {
+			state = 14;
+			clueReminder.innerHTML = ddText;
+			/*
+			timeOutBuzz = setTimeout(function() {
+				document.getElementById("timeout").play();
+				viewLecterns();
+				clueActive = 0;
+				state = 16;
+			},dailyDoubleTimeout);
+			*/
+			timeOutBuzz = setTimeout(function(){timeUp();viewLecterns();},dailyDoubleTimeout);
+		}
+	} else if (state == 14) {
+		if (key == correct || key == incorrect || key == 40) {
+			if (timeOutBuzz) {clearTimeout(timeOutBuzz);}
+			viewLecterns();
+			clueActive = 0;
+			state = 15;
+		}
+	} else if (state == 15) {
+		if (key == boardView) {
+			viewBoard();
+			if (timeOutBuzz) {clearTimeout(timeOutBuzz);}
+		}
+	} else if (state == 16) {
+		if (key==40) {
+			resetLecterns();
+			state = 2;
+			viewBoard();
+			if (timeOutBuzz) {clearTimeout(timeOutBuzz);}
+			for (i=0;i<3;i++) {
+				pStates[i] = 0;	//Set all player states to eligible
+			}
+		}
+	}
+}
+
+function timeUp() {
+	document.getElementById("timeout").play();	//Play the timeout sound
+	clueActive = 0;	//Lock all players out
+	categoryReminder.style.background = "#800000";
+	valueReminder.style.background = "#800000";
+	clueReminder.style.background = "#800000";
+	state = 16;	//Set state to waiting for host. Give the host a chance to set scores before continuing on.
+	//alert(state);
+}
+
+function resetLecterns() {
+	//alert("resetting");
+	allLightsOff();		//Turn all lights off
+	state = 0;			//Set game state to waiting
+	var i;
+	for (i=0;i<3;i++) {
+		pStates[i] = 0;	//Set all player states to eligible
+	}
+}
+
+function viewBoard() {
+	state = 2;
+	var i;
+	for (i=0;i<elements.length;i++) {
+		elements[i].style.display = 'none';
+	}
+	board.style.display = 'block';
+	if (round==1 && cluesLeft == 0) {
+		round = 2;
+		cluesLeft = cluesPerRound;
+		if (scores[0] <= scores[1] && scores[0] <= scores[2]) {
+			if (playerNames[0] != " ") {
+				alert(playerNames[0] + " selects first in Double Jeopardy.");
+			} else if (scores[1] <= scores[2] && playersNames[1] != " ") {
+				alert(playerNames[1] + " selects first in Double Jeopardy.");
+			} else {
+				alert(playerNames[2] + " selects first in Double Jeopardy.");
+			}
+		} else if (scores[1] < scores[0] && scores[1] <= scores[2]) {
+			if (playerNames[1] != " ") {
+				alert(playerNames[1] + " selects first in Double Jeopardy.");
+			} else if (scores[0] <= scores[2] && playersNames[0] != " ") {
+				alert(playerNames[0] + " selects first in Double Jeopardy.");
+			} else {
+				alert(playerNames[2] + " selects first in Double Jeopardy.");
+			}
+		} else {
+			if (playerNames[2] != " ") {
+				alert(playerNames[2] + " selects first in Double Jeopardy.");
+			} else if (scores[0] <= scores[1] && playersNames[0] != " ") {
+				alert(playerNames[0] + " selects first in Double Jeopardy.");
+			} else {
+				alert(playerNames[1] + " selects first in Double Jeopardy.");
+			}
+		}
+		for (i=0;i<6;i++) {
+			for (j=0;j<6;j++) {
+				jp1cells[i][j] = document.getElementById("1" + i + "" + j);
+				if (j==0) {
+					if (jp2[i][j].indexOf("*") != -1) {
+						jp1cells[i][j].innerHTML = jp2[i][j].substring(0,jp2[i][j].indexOf("*"));
+					} else {
+						jp1cells[i][j].innerHTML = jp2[i][j];
+					}
+				} else {
+					jp1cells[i][j].innerHTML = "$" + j*400;
+				}
+			}
+		}
+		if (jpAns) {jpAns.close();}
+		openAnswerKey(2);
+	} else if (round == 2 && cluesLeft == 0) {
+		round = 3;
+		setTimeout(function() {
+			viewClue(0,0,0);
+			alert("That's the end of Double Jeopardy!\nPrepare for Final Jeopardy!");
+			clueScreen1.style.color="#FFFFFF";
+			clueScreen1.style.background="#000097";
+			clueScreen1.style.fontSize = catSize;
+			clueScreen1.style.fontFamily = catFont;
+			clueScreen2.innerHTML = fjcat;
+			state = 4;
+		}, 3000);
+	}
+}
+
+function openAnswerKey(r) {
+	//alert(jddRow + " " + jddCol + " " + j2ddRow1 + " " + j2ddCol1 + " " + j2ddRow2 + " " + j2ddCol2);
+	var result;
+	if (r==round) {
+		if (round==1) {
+			if (!jpAns) {
+				var w = screen.width + 1200 + 1;
+				jpAns = window.open("","_blank","height=900, width=1200, menubar=no, status=no,top=0,left=" + w);
+				if (jpAns) {
+
+					jpAns.document.write("<html><head><title>Jeopardy Round Key</title><body style='font-size:90%'><div id='answers' style='position:absolute;top:0px;left:0px;display:none'><table border=1 style='font-size:90%'>");
+					for (j=0;j<6;j++) {
+						jpAns.document.write("<tr>");
+						for (i=0;i<6;i++) {
+							if (j==0) {
+								jpAns.document.write("<td id='" + i + "" + j + "'><b>" + jp1Key[i][j] + "</b></td>");
+							} else if (j==jddRow && i==jddCol) {
+								jpAns.document.write("<td style='color:red' id='" + i + "" + j + "'>$" + j*200 + "<br>" + jp1Key[i][j] + "<br><b>" + jp1a[i][j] + "</b></td>");
+							} else {
+								jpAns.document.write("<td id='" + i + "" + j + "'>$" + j*200 + "<br>" + jp1Key[i][j] + "<br><b>" + jp1a[i][j] + "</b></td>");
+							}
+						}
+						jpAns.document.write("</tr>");
+					}
+					jpAns.document.write("</table><br><br>");
+					jpAns.document.write("<center>");
+					jpAns.document.write("<table width='39%' style='font-size:90%'>");
+					jpAns.document.write("<tr>");
+					jpAns.document.write("<td id='p1name' width='13%'><center><font face='Arial'><b>" + playerNames[0] + "</td>");
+					jpAns.document.write("<td id='p2name' width='13%'><center><font face='Arial'><b>" + playerNames[1] + "</td>");
+					jpAns.document.write("<td id='p3name' width='13%'><center><font face='Arial'><b>" + playerNames[2] + "</td>");
+					jpAns.document.write("</tr><tr>");
+					jpAns.document.write("<td id='p1score'><center><font face='Arial'><b>$" + scores[0] + "</td>");
+					jpAns.document.write("<td id='p2score'><center><font face='Arial'><b>$" + scores[1] + "</td>");
+					jpAns.document.write("<td id='p3score'><center><font face='Arial'><b>$" + scores[2] + "</td>");
+					jpAns.document.write("</tr></table>");
+					jpAns.document.write("</center>");
+					jpAns.document.write("</div>");
+					jpAns.document.write("<div style='position:absolute;left:10px;top:10px' id='myButton'>");
+					jpAns.document.write("<button onClick='document.getElementById(" + '"myButton"' + ').style.display="none";document.getElementById("answers").style.display="block";' + "'>Show key</button>");
+					jpAns.document.write("</body></html>");
+					for (j=0;j<6;j++) {
+						for (i=0;i<6;i++) {
+							jp1[i][j] == "" ? jpAns.document.getElementById("" + i + "" + j).style.background = selectedClueColor : function() {};
+						}
+					}
+					result = true;
+				} else {
+					alert("Please enable popups.");
+					result = false;
+				}
+				if (lastSelectedCell) {
+					jpAns.document.getElementById(lastSelectedCell).style.background=currentClueColor;
+				}
+			} else {
+				jpAns.close();
+				jpAns = null;
+				return openAnswerKey(1);
+			}
+		} else if (round==2 || round==3) {
+			if (!jp2Ans) {
+				var w = window.screenX + 1;
+				jp2Ans = window.open("","_blank","height=900, width=1200, menubar=no, status=no,top=0,left=" + w);
+
+				if (jp2Ans) {
+					jp2Ans.document.write("<html><head><title>Double Jeopardy Round Key</title><body style='font-size:90%'><div id='answers' style='position:absolute;top:0px;left:0px;display:none'><table border=1 style='font-size:90%'>");
+					for (j=0;j<6;j++) {
+						jp2Ans.document.write("<tr>");
+						for (i=0;i<6;i++) {
+							if (j==0) {
+								jp2Ans.document.write("<td id='" + i + "" + j + "'><b>" + jp2Key[i][j] + "</b></td>");
+							} else if ((j==j2ddRow1 && i==j2ddCol1) || (j==j2ddRow2 && i==j2ddCol2)) {
+								jp2Ans.document.write("<td style='color:red' id='" + i + "" + j + "'>$" + j*400 + " <br>" + jp2Key[i][j] + "<br><b>" + jp2a[i][j] + "</b></td>");
+							} else {
+								jp2Ans.document.write("<td id='" + i + "" + j + "'>$" + j*400 + " <br>" + jp2Key[i][j] + "<br><b>" + jp2a[i][j] + "</b></td>");
+							}
+						}
+						jp2Ans.document.write("</tr>");
+					}
+					jp2Ans.document.write("</table><br><br>");
+					jp2Ans.document.write("<p>Final Jeopardy:<br>" + fjcat + "<br>" + fjclue + "<br><b>" + fjresp + "</p><br>");
+					jp2Ans.document.write("<center>");
+					jp2Ans.document.write("<table width='39%' style='font-size:90%'>");
+					jp2Ans.document.write("<tr>");
+					jp2Ans.document.write("<td id='p1name' width='13%'><center><font face='Arial'><b>" + playerNames[0] + "</td>");
+					jp2Ans.document.write("<td id='p2name' width='13%'><center><font face='Arial'><b>" + playerNames[1] + "</td>");
+					jp2Ans.document.write("<td id='p3name' width='13%'><center><font face='Arial'><b>" + playerNames[2] + "</td>");
+					jp2Ans.document.write("</tr><tr>");
+					jp2Ans.document.write("<td id='p1score'><center><font face='Arial'><b>$" + scores[0] + "</td>");
+					jp2Ans.document.write("<td id='p2score'><center><font face='Arial'><b>$" + scores[1] + "</td>");
+					jp2Ans.document.write("<td id='p3score'><center><font face='Arial'><b>$" + scores[2] + "</td>");
+					jp2Ans.document.write("</tr></table>");
+					jp2Ans.document.write("</center>");
+					jp2Ans.document.write("</div>");
+					jp2Ans.document.write("<div style='position:absolute;left:10px;top:10px' id='myButton'>");
+					jp2Ans.document.write("<button onClick='document.getElementById(" + '"myButton"' + ').style.display="none";document.getElementById("answers").style.display="block";' + "'>Show key</button>");
+					jp2Ans.document.write("</body></html>");
+					for (j=0;j<6;j++) {
+						for (i=0;i<6;i++) {
+							jp2[i][j] == "" ? jp2Ans.document.getElementById("" + i + "" + j).style.background = selectedClueColor : function() {} ;
+						}
+					}
+					result = true;
+				} else {
+					alert("Please enable popups.");
+					result = false;
+				}
+				if (lastSelectedCell && cluesLeft != cluesPerRound) {
+					jp2Ans.document.getElementById(lastSelectedCell).style.background=currentClueColor;
+				}
+			} else {
+				jp2Ans.close();
+				jp2Ans = null;
+				return openAnswerKey(2);
+			}
+		}
+	} else {
+		result = false;
+	}
+	return result;
+}
+
+function viewClue(round,row,col) {
+	state = 3;
+	var i;
+	for (i=0;i<elements.length;i++) {
+		elements[i].style.display = 'none';
+	}
+	clue.style.display = 'block';
+}
+
+function viewLecterns() {
+	state = 0;
+	lastBuzz = -1;
+	var i;
+	for (i=0;i<elements.length;i++) {
+		elements[i].style.display = 'none';
+	}
+	lecterns.style.display = 'block';
+	if (round == 3) {
+		clueReminder.innerHTML = "";
+		valueReminder.innerHTML = "";
+		categoryReminder.innerHTML = fjcat;
+	}
+}
+
+function viewFileLoad() {
+	var i;
+	for (i=0;i<elements.length;i++) {
+		elements[i].style.display = 'none';
+	}
+	fileLoad.style.display = 'block';
+}
+
+function checkPlayers() {
+	var i;
+	for (i=0;i<playerNames.length;i++) {
+		if (playerNames[i].trim() != "") {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+function setEnvironment() {
+	var i;
+	lastBuzz = -1; 	//No one has buzzed
+	clueActive = 0;	//No clue is active at the start.
+
+	//	Set the player names
+
+	for (i=0;i<playerNames.length;i++) {
+		playerNames[i] = prompt("Player " + (i+1) + ", enter your name:");
+		while (playerNames[i]==null) {
+			playerNames[i] = prompt("Invalid entry.\nPlayer " + (i+1) + ", enter your name:");
+		}
+		if (i==playerNames.length-1) {
+			while (checkPlayers() == 0) {
+				playerNames[i] = prompt("You must have at least one non-blank player.\nPlayer " + (i+1) + ", enter your name:");
+			}
+		}
+	}
+
+	document.getElementById("lec").style.background = lecternColor;
+	document.getElementById("lecternCategory").style.background = lecternColor;
+	document.getElementById("lecternValue").style.background = lecternColor;
+	document.getElementById("lecternClueText").style.background = lecternColor;
+	document.getElementById("lecternCategory").style.color = lecternTextColor;
+	document.getElementById("lecternValue").style.color = "#F1A972";
+	document.getElementById("lecternClueText").style.color = lecternTextColor;
+
+	if (document.getElementById("clueGrid")) {
+		document.getElementById("clueGrid").style.background = lecternColor;
+	}
+	document.getElementById("p1name").innerHTML = playerNames[0];
+	document.getElementById("p2name").innerHTML = playerNames[1];
+	document.getElementById("p3name").innerHTML = playerNames[2];
+
+
+	document.getElementById('file1').addEventListener('change', readSingleFile, false);
+
+	scores = [0,0,0];	// Set scores to 0
+	setScores();		// Display the scores
+	state = -1;			// Set game state to file upload mode
+	pStates = [0,0,0];	// Set all player states to eligible for buzz
+	lightsOff = [
+	setTimeout(function(){},1000),setTimeout(function(){},1000),setTimeout(function(){},1000),setTimeout(function(){},1000),setTimeout(function(){},1000)
+	];					//Initialize the lightsOff array
+	allLightsOff();		//Turn all lights off
+	lecterns = document.getElementById("lecterns");
+	board = document.getElementById("board");
+	clue = document.getElementById("clue");
+	fileLoad = document.getElementById("uploadFile");
+	clueScreen1 = document.getElementById("clueScreen1");
+	clueScreen2 = document.getElementById("clueScreen2");
+	categoryReminder = document.getElementById("lecternCategory");
+	valueReminder = document.getElementById("lecternValue");
+	clueReminder = document.getElementById("lecternClueText");
+
+	elements = [lecterns,board,clue,fileLoad];
+
+	cluesLeft = cluesPerRound;
+	round = 1;
+
+	var weight;
+	var totalWeight = 0;
+	var r;
+
+	for (i=0;i<DDDist.length;i++) {
+		totalWeight += DDDist[i];
+	}
+
+	jddCol = Math.floor(Math.random() * 6);
+	j2ddCol1 = Math.floor(Math.random() * 6);
+	j2ddCol2 = (j2ddCol1 + Math.floor(Math.random() * 5 + 1)) % 6;
+
+	r = Math.floor(Math.random() * totalWeight);
+	weight = 0;
+	for (i=0;i<DDDist.length;i++) {
+		weight += DDDist[i];
+		if (r < weight) {
+			jddRow = i + 1;
+			break;
+		}
+	}
+
+	r = Math.floor(Math.random() * totalWeight);
+	weight = 0;
+	for (i=0;i<DDDist.length;i++) {
+		weight += DDDist[i];
+		if (r < weight) {
+			j2ddRow1 = i + 1;
+			break;
+		}
+	}
+
+	r = Math.floor(Math.random() * totalWeight);
+	weight = 0;
+	for (i=0;i<DDDist.length;i++) {
+		weight += DDDist[i];
+		if (r < weight) {
+			j2ddRow2 = i + 1;
+			break;
+		}
+	}
+
+	//alert(jddRow + " " + jddCol + " " + j2ddRow1 + " " + j2ddCol1 + " " + j2ddRow2 + " " + j2ddCol2);
+
+	viewFileLoad();
+
+}
+
+function addScore(p,s) {
+
+	//alert(pStates[0] + " " + pStates[1] + " " + pStates[2]);
+
+	document.getElementById("p1add").focus();
+	document.getElementById("p1add").blur();
+	scores[p] += s;
+	setScores();
+	if (state == 1 || state == 0) {
+		if (s > 0) {	//	Someone answered correctly
+			clueActive = 0;														//	Lock everyone out
+			clearTimeout(timeOutBuzz);
+		} else if (s < 0) {	//Someone answered incorrectly
+			if (state == 15) {
+				clearTimeout(timeOutBuzz);
+				clueActive = 0;
+				viewLecterns();
+			} else if (pStates[0] == 0 || pStates[1] == 0 || pStates[2] == 0) {
+				clearTimeout(timeOutBuzz);
+			} else {
+				clearTimeout(timeOutBuzz);
+				state = 0;
+				clueActive = 0;
+			}
+		}
+	}
+	//alert(state);
+}
+
+function setScores() {
+
+	var scoreStrings = ["","",""];
+
+	var i;
+
+
+	for (i=0;i<scores.length;i++) {
+		scores[i] = parseInt(scores[i].toString());
+		scoreTemp = scores[i].toString();
+		if (scores[i] >= 1000) {
+			scoreStrings[i] = "$" + Math.floor(scores[i]/1000) + "," + scoreTemp.substring(scoreTemp.length-3,scoreTemp.length);
+		} else if (scores[i] >= 0) {
+			scoreStrings[i] = "$" + scores[i];
+		} else if (scores[i] > -1000) {
+			scoreStrings[i] = "<font color='#FF0000'>-$" + (-scores[i]);
+		} else {
+			scoreStrings[i] = "<font color='#FF0000'>-$" + Math.floor(-scores[i]/1000) + "," + scoreTemp.substring(scoreTemp.length-3,scoreTemp.length);
+		}
+	}
+
+	document.getElementById("p1score").innerHTML = "<center><font size='500%'><font face='Arial'><font color='#FFFFFF'><b>" + scoreStrings[0] + "</center>";
+	document.getElementById("p2score").innerHTML = "<center><font size='500%'><font face='Arial'><font color='#FFFFFF'><b>" + scoreStrings[1] + "</center>";
+	document.getElementById("p3score").innerHTML = "<center><font size='500%'><font face='Arial'><font color='#FFFFFF'><b>" + scoreStrings[2] + "</center>";
+
+	var myWindow = (round == 1 ? jpAns : jp2Ans);
+
+	if (myWindow != null && !myWindow.closed) {
+		myWindow.document.getElementById('p1score').innerHTML = "<center><font face='Arial'><b>" + scoreStrings[0] + "</center>";
+		myWindow.document.getElementById('p2score').innerHTML = "<center><font face='Arial'><b>" + scoreStrings[1] + "</center>";
+		myWindow.document.getElementById('p3score').innerHTML = "<center><font face='Arial'><b>" + scoreStrings[2] + "</center>";
+	}
+
+	//alert(scores[0] + " " + scores[1] + " " + scores[2]);
+
+}
+
+function selectClue(cat,clue) {
+	state = 2;
+	selectedCat = cat;
+	selectedClue = clue;
+
+	if (((round==1 && jp1[cat][clue] != "") || (round==2 && jp2[cat][clue] != ""))) {
+		if (cluesLeft != cluesPerRound) {
+			if (round==1 && !jpAns.closed) {
+				jpAns.document.getElementById(lastSelectedCell).style.background=selectedClueColor;
+			} else if (round==2 && !jp2Ans.closed) {
+				jp2Ans.document.getElementById(lastSelectedCell).style.background=selectedClueColor;
+			}
+		}
+
+		if (round==1 && !jpAns.closed) {
+			jpAns.document.getElementById(cat + "" + clue).style.background=currentClueColor;
+		} else if (round==2 && !jp2Ans.closed) {
+			jp2Ans.document.getElementById(cat + "" + clue).style.background=currentClueColor;
+		}
+
+
+		lastSelectedCell = cat + "" + clue;
+
+		document.getElementById(1 + "" + cat + "" + clue).innerHTML = "";
+		cluesLeft-=1;
+		hostBuzzer = 1;
+		qValue = round * 200 * clue;
+		viewClue(round,clue,cat);
+		//alert(cat + " " + jddCol + " " + clue + " " + jddRow);
+		if ((round == 1 && clue == jddRow && cat == jddCol) || (round == 2 && clue == j2ddRow1 && cat == j2ddCol1) || (round == 2 && clue == j2ddRow2 && cat == j2ddCol2)) {
+			//alert("daily double!");
+			document.getElementById("dd").play();
+			//clueScreen.style.background = "#000000"
+			viewClue(0,0,0);
+			clueScreen2.innerHTML = "<img src='media/dd.jpg' width=1024 height=768>";
+			state = 10;
+			var x = setTimeout(function() {
+				clueScreen1.style.color="#FFFFFF";
+				clueScreen1.style.background="#000097";
+				clueScreen1.style.fontSize = catSize;
+				clueScreen1.style.fontFamily = catFont;
+				valueReminder.innerHTML = "DD";
+				valueReminder.style.background = lecternColor;
+				clueReminder.style.background = lecternColor;
+				clueReminder.innerHTML = "";
+				if (round==1) {
+					var k = jp1[cat][0].indexOf("*");
+					clueScreen2.innerHTML = (k == -1 ? jp1[cat][0] : jp1[cat][0].substring(0,k));
+				} else if (round==2) {
+					var k = jp2[cat][0].indexOf("*");
+					clueScreen2.innerHTML = (k == -1 ? jp2[cat][0] : jp2[cat][0].substring(0,k));
+				}
+				categoryReminder.innerHTML = clueScreen2.innerHTML;
+				categoryReminder.style.background = lecternColor;
+				ddText = (round==1 ? jp1[cat][clue] : jp2[cat][clue]).toUpperCase();
+				state = 11;
+			},3000);
+		} else {
+			clueScreen1.style.color="#F1A972";
+			clueScreen1.style.background="#000097";
+			clueScreen1.style.fontSize = catSize;
+			clueScreen1.style.fontFamily = catFont;
+			clueScreen2.innerHTML = "$" + qValue;
+			valueReminder.innerHTML = "$" + qValue;
+			valueReminder.style.background = lecternColor;
+			var x = setTimeout(function() {
+				clueScreen1.style.color="#FFFFFF";
+				clueScreen1.style.fontSize = clueSize;
+				clueScreen1.style.fontFamily = clueFont;
+				clueScreen2.innerHTML = (round==1 ? jp1[cat][clue] : jp2[cat][clue]).toUpperCase();
+				round == 1 ? jp1[cat][clue] = "" : jp2[cat][clue] = "";
+				hostBuzzer = 0;
+				if (round != 3) {
+					clueReminder.innerHTML = clueScreen2.innerHTML;
+				} else {
+					clueReminder.innerHTML = "";
+				}
+				clueReminder.style.background = lecternColor;
+				if (round==1) {
+					var k = jp1[cat][0].indexOf("*");
+					categoryReminder.innerHTML = (k == -1 ? jp1[cat][0] : jp1[cat][0].substring(0,k));
+				} else if (round==2) {
+					var k = jp2[cat][0].indexOf("*");
+					categoryReminder.innerHTML = (k == -1 ? jp2[cat][0] : jp2[cat][0].substring(0,k));
+				}
+				categoryReminder.style.background = lecternColor;
+			},1500);
+		}
+	}
+}
+
+function highlightKey(cat,clue) {
+	if (((round==1 && jp1[cat][clue] != "") || (round==2 && jp2[cat][clue] != ""))) {
+		if (cat == selectedCat && clue == selectedClue) {
+
+		} else if (round==1 && !jpAns.closed) {
+			jpAns.document.getElementById(cat + "" + clue).style.background=highlightedClueColor;
+		} else if (round==2 && !jp2Ans.closed) {
+			jp2Ans.document.getElementById(cat + "" + clue).style.background=highlightedClueColor;
+		}
+	}
+}
+
+function unhighlightKey(cat,clue) {
+
+	var myWindow;
+	var myBoard;
+
+	if (round==1) {
+		myWindow = jpAns;
+		myBoard = jp1;
+	} else {
+		myWindow = jp2Ans;
+		myBoard = jp2;
+	}
+
+	if (!myWindow.closed) {
+		if (cat == selectedCat && clue == selectedClue) {
+			myWindow.document.getElementById(cat + "" + clue).style.background=currentClueColor;
+		} else if (myBoard[cat][clue] != "") {
+			myWindow.document.getElementById(cat + "" + clue).style.background="#FFFFFF";
+		} else {
+			myWindow.document.getElementById(cat + "" + clue).style.background=selectedClueColor;
+		}
+	}
+
+}
+
+function light(n) {
+
+	var myWindow = (round == 1 ? jpAns : jp2Ans);
+
+	var light5 = document.getElementsByName("p" + n + "5");
+	var light4 = document.getElementsByName("p" + n + "4");
+	var light3 = document.getElementsByName("p" + n + "3");
+	var light2 = document.getElementsByName("p" + n + "2");
+	var light1 = document.getElementsByName("p" + n + "1");
+	var light0 = document.getElementsByName("p" + n + "light");
+
+	light5[0].style.background=lightOnColor;
+	light4[0].style.background=lightOnColor;
+	light3[0].style.background=lightOnColor;
+	light2[0].style.background=lightOnColor;
+	light1[0].style.background=lightOnColor;
+	light5[1].style.background=lightOnColor;
+	light4[1].style.background=lightOnColor;
+	light3[1].style.background=lightOnColor;
+	light2[1].style.background=lightOnColor;
+	light0[0].style.background="#FFFFFF";
+	light0[1].style.background="#FFFFFF";
+
+	lightsOff = [setTimeout(function() {
+		if (state==1) {
+			light5[0].style.background=lightOffColor;
+			light5[1].style.background=lightOffColor;
+		}
+	},1000),
+	setTimeout(function() {
+		if (state==1) {
+			light4[0].style.background=lightOffColor;
+			light4[1].style.background=lightOffColor;
+		}
+	},2000),
+	setTimeout(function() {
+		if (state==1) {
+			light3[0].style.background=lightOffColor;
+			light3[1].style.background=lightOffColor;
+		}
+	},3000),
+	setTimeout(function() {
+		if (state==1) {
+			light2[0].style.background=lightOffColor;
+			light2[1].style.background=lightOffColor;
+		}
+	},4000),
+	setTimeout(function() {
+		if (state==1) {
+			light1[0].style.background=lightOffColor;
+			light0[0].style.background=lecternColor;
+			light0[1].style.background=lecternColor;
+			pStates[n-1] = 1;
+			allLightsOff();
+			state = 0;
+			if (pStates[0] == 0 || pStates[1] == 0 || pStates[2] == 0) {
+				timeOutBuzz = setTimeout(function(){timeUp();},qTimeLimit);	//Start the timeout timer again.
+			} else {
+				state = 0;
+				pStates[0] = 0;
+				pStates[1] = 0;
+				pStates[2] = 0;
+				clueActive = 0;
+			}
+		}
+	},5000)];
+	//alert(state);
+}
+
+function allLightsOff() {
+	var i;
+	var myWindow = (round == 1 ? jpAns : jp2Ans);
+
+	if (myWindow != null && !myWindow.closed) {
+		if (myWindow.document.getElementById("p" + (lastBuzz + 1) + "name") != null) {
+			myWindow.document.getElementById("p" + (lastBuzz + 1) + "name").style.background="#FFFFFF";
+		}
+	}
+
+
+	if (state==1) {
+		for (i=0;i<5;i++) {
+			clearTimeout(lightsOff[i]);
+		}
+	}
+	var n;
+	for (n=1;n<=3;n++) {
+		var light5 = document.getElementsByName("p" + n + "5");
+		var light4 = document.getElementsByName("p" + n + "4");
+		var light3 = document.getElementsByName("p" + n + "3");
+		var light2 = document.getElementsByName("p" + n + "2");
+		var light1 = document.getElementsByName("p" + n + "1");
+
+		var light0 = document.getElementsByName("p" + n + "light");
+
+		light5[0].style.background=lightOffColor;
+		light4[0].style.background=lightOffColor;
+		light3[0].style.background=lightOffColor;
+		light2[0].style.background=lightOffColor;
+		light1[0].style.background=lightOffColor;
+		light5[1].style.background=lightOffColor;
+		light4[1].style.background=lightOffColor;
+		light3[1].style.background=lightOffColor;
+		light2[1].style.background=lightOffColor;
+		light0[0].style.background=lecternColor;
+		light0[1].style.background=lecternColor;
+	}
+}
+
+function readSingleFile(evt) {
+	//Retrieve the first (and only!) File from the FileList object
+	var f = evt.target.files[0];
+	var result;
+
+	if (f) {
+		var r = new FileReader();
+		r.onload = function(e) {
+			var result;
+			var contents = e.target.result.split("\n");			//	Split the contents of the file by lines
+			var index = 0;										//	Start at the beginning
+			if (contents.length == 135 || (contents.length == 136 && contents[135] == "")) {	//	Read each element
+				var i;
+				for (i=0;i<6;i++) {								//	For each of 6 categories
+					jp1[i][0] = contents[index];				//	Put the category into the clue array
+					jp1Key[i][0] = jp1[i][0];
+					jp1a[i][0] = contents[index];				//	Put the category into the response array
+					index++;									//	Look at the next element of the file
+					var j;
+					for (j=1;j<6;j++) {							//	For each clue in the category
+						jp1[i][j] = contents[index];			//	Put the clue into the clue array
+						jp1Key[i][j] = jp1[i][j];
+						index++;
+						jp1a[i][j] = contents[index];			//	Put the correct response into the response array
+						index++;
+					}
+				}
+
+				/*
+				Repeat for double jeopardy
+				*/
+				for (i=0;i<6;i++) {								//	For each of 6 categories
+					jp2[i][0] = contents[index];				//	Put the category into the clue array
+					jp2Key[i][0] = jp2[i][0];
+					jp2a[i][0] = contents[index];				//	Put the category into the response array
+					index++;									//	Look at the next element of the file
+					var j;
+					for (j=1;j<6;j++) {							//	For each clue in the category
+						jp2[i][j] = contents[index];			//	Put the clue into the clue array
+						jp2Key[i][j] = jp2[i][j];
+						index++;
+						jp2a[i][j] = contents[index];			//	Put the correct response into the response array
+						index++;
+					}
+				}
+
+				fjcat = contents[index];
+				index++;
+				fjclue = contents[index];
+				index++;
+				fjresp = contents[index];
+
+				var i;
+				var j;
+				for (i=0;i<6;i++) {
+					for (j=0;j<6;j++) {
+						jp1cells[i][j] = document.getElementById("1" + i + "" + j);
+						if (j == 0) {
+							if (jp1[i][j].indexOf("*") != -1) {
+								jp1cells[i][j].innerHTML = jp1[i][j].substring(0,jp1[i][j].indexOf("*"));
+							} else {
+								jp1cells[i][j].innerHTML = jp1[i][j];
+							}
+						} else {
+							jp1cells[i][j].innerHTML = "$" + j*200;
+						}
+					}
+				}
+
+				if (openAnswerKey(1)) {
+					result = 0;
+				} else {
+					result = 1;
+				}
+
+			} else {
+				alert("File is incorrect length. Expected: 135. Actual: " + contents.length);
+				result = 1;
+			}
+
+			if (result == 0) {
+				viewLecterns();
+			} else {
+				document.getElementById('file1').value=null;
+			}
+
+		}
+		r.readAsText(f);
+
+	} else {
+		alert("Failed to load file");
+		result = 1;
+	}
+
+
+}
+
+</script>
+<title>Jeopardy</title>
+</head>
+<body onLoad="setEnvironment();" style="background-color:#000000">
+<div id="lecterns" style="width:90%;position:absolute;top:20px;left:5%;">
+<audio id="timeout" src="sounds/Jeopardy-time.mp3" preload="auto"></audio>
+<audio id="think" src="sounds/think.mp3" preload="auto"></audio>
+<audio id="dd" src="sounds/dailydouble.mp3" preload="auto"></audio>
+<audio id="fj" src="sounds/FJreveal.mp3" preload="auto"></audio>
+<br>
+<table id="lec" border="1" cellpadding="3" width="100%" style="background-color:#071183">
+
+
+
+<tr style="height:20px">
+<th name="p15" style="background-color:#000000"></th><th name="p14" style="background-color:#000000"></th><th name="p13" style="background-color:#000000"></th><th name="p12" style="background-color:#000000"></th><th name="p11" style="background-color:#000000"></th><th name="p12" style="background-color:#000000"></th><th name="p13" style="background-color:#000000"></th><th name="p14" style="background-color:#000000"></th><th name="p15" style="background-color:#000000"></th>
+<th name="p25" style="background-color:#000000"></th><th name="p24" style="background-color:#000000"></th><th name="p23" style="background-color:#000000"></th><th name="p22" style="background-color:#000000"></th><th name="p21" style="background-color:#000000"></th><th name="p22" style="background-color:#000000"></th><th name="p23" style="background-color:#000000"></th><th name="p24" style="background-color:#000000"></th><th name="p25" style="background-color:#000000"></th>
+<th name="p35" style="background-color:#000000"></th><th name="p34" style="background-color:#000000"></th><th name="p33" style="background-color:#000000"></th><th name="p32" style="background-color:#000000"></th><th name="p31" style="background-color:#000000"></th><th name="p32" style="background-color:#000000"></th><th name="p33" style="background-color:#000000"></th><th name="p34" style="background-color:#000000"></th><th name="p35" style="background-color:#000000"></th>
+</tr>
+
+<tr style="height:100px;font-size=400%" >
+<td colspan="9" id="p1score" style="width:33%"></td>
+<td colspan="9" id="p2score" style="width:33%"></td>
+<td colspan="9" id="p3score" style="width:33%"></td>
+</tr>
+
+<tr style="height:100px">
+<td colspan="9" name="p1light"></td><td colspan="9" name="p2light"></td><td colspan="9" name="p3light"></td>
+</tr>
+
+<tr style="height:250px;text-align:center;color:#FFFFFF;font-size:400%;font-family:Korinna BT">
+<td colspan="9" id="p1name"></td><td colspan="9" id="p2name"></td><td colspan="9" id="p3name"></td>
+</tr>
+
+<tr style="height:100px">
+<td colspan="9" name="p1light"></td><td colspan="9" name="p2light"></td><td colspan="9" name="p3light"></td>
+</tr>
+
+<tr>
+<td colspan="9">
+<button id="0200" onClick="addScore(0,200);">+200</button>
+<button id="0400" onClick="addScore(0,400);">+400</button>
+<button id="0600" onClick="addScore(0,600);">+600</button>
+<button id="0800" onClick="addScore(0,800);">+800</button>
+<button id="01000" onClick="addScore(0,1000);">+1,000</button>
+<button id="01200" onClick="addScore(0,1200);">+1,200</button>
+<button id="01600" onClick="addScore(0,1600);">+1,600</button>
+<button id="02000" onClick="addScore(0,2000);">+2,000</button><br>
+<button id="0-200" onClick="addScore(0,-200);">-200</button>
+<button id="0-400" onClick="addScore(0,-400);">-400</button>
+<button id="0-600" onClick="addScore(0,-600);">-600</button>
+<button id="0-800" onClick="addScore(0,-800);">-800</button>
+<button id="0-1000" onClick="addScore(0,-1000);">-1,000</button>
+<button id="0-1200" onClick="addScore(0,-1200);">-1,200</button>
+<button id="0-1600" onClick="addScore(0,-1600);">-1,600</button>
+<button id="0-2000" onClick="addScore(0,-2000);">-2,000</button>
+</td>
+<td colspan="9">
+<button id="1200" onClick="addScore(1,200);">+200</button>
+<button id="1400" onClick="addScore(1,400);">+400</button>
+<button id="1600" onClick="addScore(1,600);">+600</button>
+<button id="1800" onClick="addScore(1,800);">+800</button>
+<button id="11000" onClick="addScore(1,1000);">+1,000</button>
+<button id="11200" onClick="addScore(1,1200);">+1,200</button>
+<button id="11600" onClick="addScore(1,1600);">+1,600</button>
+<button id="12000" onClick="addScore(1,2000);">+2,000</button><br>
+<button id="1-200" onClick="addScore(1,-200);">-200</button>
+<button id="1-400" onClick="addScore(1,-400);">-400</button>
+<button id="1-600" onClick="addScore(1,-600);">-600</button>
+<button id="1-800" onClick="addScore(1,-800);">-800</button>
+<button id="1-1000" onClick="addScore(1,-1000);">-1,000</button>
+<button id="1-1200" onClick="addScore(1,-1200);">-1,200</button>
+<button id="1-1600" onClick="addScore(1,-1600);">-1,600</button>
+<button id="1-2000" onClick="addScore(1,-2000);">-2,000</button>
+</td>
+<td colspan="9">
+<button id="2200" onClick="addScore(2,200);">+200</button>
+<button id="2400" onClick="addScore(2,400);">+400</button>
+<button id="2600" onClick="addScore(2,600);">+600</button>
+<button id="2800" onClick="addScore(2,800);">+800</button>
+<button id="21000" onClick="addScore(2,1000);">+1,000</button>
+<button id="21200" onClick="addScore(2,1200);">+1,200</button>
+<button id="21600" onClick="addScore(2,1600);">+1,600</button>
+<button id="22000" onClick="addScore(2,2000);">+2,000</button><br>
+<button id="2-200" onClick="addScore(2,-200);">-200</button>
+<button id="2-400" onClick="addScore(2,-400);">-400</button>
+<button id="2-600" onClick="addScore(2,-600);">-600</button>
+<button id="2-800" onClick="addScore(2,-800);">-800</button>
+<button id="2-1000" onClick="addScore(2,-1000);">-1,000</button>
+<button id="2-1200" onClick="addScore(2,-1200);">-1,200</button>
+<button id="2-1600" onClick="addScore(2,-1600);">-1,600</button>
+<button id="2-2000" onClick="addScore(2,-2000);">-2,000</button>
+</td>
+</tr>
+
+<tr>
+<td colspan="5">
+<button onClick="document.getElementById('p1add').value!='' ? scores[0]=scores[0] - parseInt(document.getElementById('p1add').value) : alert('Invalid entry.');setScores();">-</button>
+<input type="number" id="p1add">
+<button onClick="document.getElementById('p1add').value!='' ? scores[0]=scores[0] + parseInt(document.getElementById('p1add').value) : alert('Invalid entry.');setScores();">+</button>
+</td>
+
+<td colspan="4">
+<input type="number" id="p1set">
+<button onClick="document.getElementById('p1set').value != '' ? scores[0]=document.getElementById('p1set').value : alert('Invalid entry.');setScores();">Set</button>
+</td>
+
+<td colspan="5">
+<button onClick="document.getElementById('p2add').value!='' ? scores[1]=scores[1] - parseInt(document.getElementById('p2add').value) : alert('Invalid entry.');setScores();">-</button>
+<input type="number" id="p2add">
+<button onClick="document.getElementById('p2add').value!='' ? scores[1]=scores[1] + parseInt(document.getElementById('p2add').value) : alert('Invalid entry.');setScores();">+</button>
+</td>
+
+<td colspan="4">
+<input type="number" id="p2set">
+<button onClick="document.getElementById('p2set').value != '' ? scores[1]=document.getElementById('p2set').value : alert('Invalid entry.');setScores();">Set</button>
+</td>
+
+<td colspan="5">
+<button onClick="document.getElementById('p3add').value!='' ? scores[2]=scores[2] - parseInt(document.getElementById('p3add').value) : alert('Invalid entry.');setScores();">-</button>
+<input type="number" id="p3add">
+<button onClick="document.getElementById('p3add').value!='' ? scores[2]=scores[2] + parseInt(document.getElementById('p3add').value) : alert('Invalid entry.');setScores();">+</button>
+</td>
+
+<td colspan="4">
+<input type="number" id="p3set">
+<button onClick="document.getElementById('p3set').value != '' ? scores[2]=document.getElementById('p3set').value : alert('Invalid entry.');setScores();">Set</button>
+</td>
+</tr>
+
+<tr style="height:150px;font-size:200%;">
+<td colspan="9" id="lecternCategory" style="font-family:Haettenschweiler;font-size:150%;text-align:center;"></td>
+<td colspan="9" id="lecternValue" style="font-family:Haettenschweiler;font-size:300%;text-align:center;"></td>
+<td colspan="9" id="lecternClueText" style="font-family:Korinna BT;font-size:70%;text-align:center;"></td>
+</tr>
+
+</tr>
+</table>
+</div>
+
+<div id="uploadFile" style="width:99%;position:absolute;top:10px;display:none;">
+<center><br><br><br><input type="file" name="file1" id="file1" style="font-size:60px;"></center>
+</div>
+
+
+<div id="board" style="width:90%;position:absolute;top:20px;left:5%;display:none">
+
+<table id="clueGrid" border="2" bordercolor="#000000" cellpadding="3" style="text-align:center;background-color:#000097;width:100%;height:100%;font-family:Haettenschweiler">
+	<tr style="height:140px;color:#FFFFFF;font-size:300%">
+		<td style="width:16%" id="100"></td>
+		<td style="width:16%" id="110"></td>
+		<td style="width:16%" id="120"></td>
+		<td style="width:16%" id="130"></td>
+		<td style="width:16%" id="140"></td>
+		<td style="width:16%" id="150"></td>
+	</tr>
+	<tr style="height:140px;color:#F1A972;font-size:500%">
+		<td id="101" onClick="selectClue(0,1)" onMouseover="highlightKey(0,1);" onMouseout="unhighlightKey(0,1);"></td>
+		<td id="111" onClick="selectClue(1,1)" onMouseover="highlightKey(1,1);" onMouseout="unhighlightKey(1,1);"></td>
+		<td id="121" onClick="selectClue(2,1)" onMouseover="highlightKey(2,1);" onMouseout="unhighlightKey(2,1);"></td>
+		<td id="131" onClick="selectClue(3,1)" onMouseover="highlightKey(3,1);" onMouseout="unhighlightKey(3,1);"></td>
+		<td id="141" onClick="selectClue(4,1)" onMouseover="highlightKey(4,1);" onMouseout="unhighlightKey(4,1);"></td>
+		<td id="151" onClick="selectClue(5,1)" onMouseover="highlightKey(5,1);" onMouseout="unhighlightKey(5,1);"></td>
+	</tr>
+	<tr style="height:140px;color:#F1A972;font-size:500%">
+		<td id="102" onClick="selectClue(0,2)" onMouseover="highlightKey(0,2);" onMouseout="unhighlightKey(0,2);"></td>
+		<td id="112" onClick="selectClue(1,2)" onMouseover="highlightKey(1,2);" onMouseout="unhighlightKey(1,2);"></td>
+		<td id="122" onClick="selectClue(2,2)" onMouseover="highlightKey(2,2);" onMouseout="unhighlightKey(2,2);"></td>
+		<td id="132" onClick="selectClue(3,2)" onMouseover="highlightKey(3,2);" onMouseout="unhighlightKey(3,2);"></td>
+		<td id="142" onClick="selectClue(4,2)" onMouseover="highlightKey(4,2);" onMouseout="unhighlightKey(4,2);"></td>
+		<td id="152" onClick="selectClue(5,2)" onMouseover="highlightKey(5,2);" onMouseout="unhighlightKey(5,2);"></td>
+	</tr>
+	<tr style="height:140px;color:#F1A972;font-size:500%">
+		<td id="103" onClick="selectClue(0,3)" onMouseover="highlightKey(0,3);" onMouseout="unhighlightKey(0,3);"></td>
+		<td id="113" onClick="selectClue(1,3)" onMouseover="highlightKey(1,3);" onMouseout="unhighlightKey(1,3);"></td>
+		<td id="123" onClick="selectClue(2,3)" onMouseover="highlightKey(2,3);" onMouseout="unhighlightKey(2,3);"></td>
+		<td id="133" onClick="selectClue(3,3)" onMouseover="highlightKey(3,3);" onMouseout="unhighlightKey(3,3);"></td>
+		<td id="143" onClick="selectClue(4,3)" onMouseover="highlightKey(4,3);" onMouseout="unhighlightKey(4,3);"></td>
+		<td id="153" onClick="selectClue(5,3)" onMouseover="highlightKey(5,3);" onMouseout="unhighlightKey(5,3);"></td>
+	</tr>
+	<tr style="height:140px;color:#F1A972;font-size:500%">
+		<td id="104" onClick="selectClue(0,4)" onMouseover="highlightKey(0,4);" onMouseout="unhighlightKey(0,4);"></td>
+		<td id="114" onClick="selectClue(1,4)" onMouseover="highlightKey(1,4);" onMouseout="unhighlightKey(1,4);"></td>
+		<td id="124" onClick="selectClue(2,4)" onMouseover="highlightKey(2,4);" onMouseout="unhighlightKey(2,4);"></td>
+		<td id="134" onClick="selectClue(3,4)" onMouseover="highlightKey(3,4);" onMouseout="unhighlightKey(3,4);"></td>
+		<td id="144" onClick="selectClue(4,4)" onMouseover="highlightKey(4,4);" onMouseout="unhighlightKey(4,4);"></td>
+		<td id="154" onClick="selectClue(5,4)" onMouseover="highlightKey(5,4);" onMouseout="unhighlightKey(5,4);"></td>
+	</tr>
+	<tr style="height:140px;color:#F1A972;font-size:500%">
+		<td id="105" onClick="selectClue(0,5)" onMouseover="highlightKey(0,5);" onMouseout="unhighlightKey(0,5);"></td>
+		<td id="115" onClick="selectClue(1,5)" onMouseover="highlightKey(1,5);" onMouseout="unhighlightKey(1,5);"></td>
+		<td id="125" onClick="selectClue(2,5)" onMouseover="highlightKey(2,5);" onMouseout="unhighlightKey(2,5);"></td>
+		<td id="135" onClick="selectClue(3,5)" onMouseover="highlightKey(3,5);" onMouseout="unhighlightKey(3,5);"></td>
+		<td id="145" onClick="selectClue(4,5)" onMouseover="highlightKey(4,5);" onMouseout="unhighlightKey(4,5);"></td>
+		<td id="155" onClick="selectClue(5,5)" onMouseover="highlightKey(5,5);" onMouseout="unhighlightKey(5,5);"></td>
+	</tr>
+</table>
+
+</div>
+
+<div id="clue" style="width:90%;position:absolute;top:20px;left:5%;display:none">
+<table id="clueScreen1" style="width:90%;height:800px;text-align:center">
+<tr>
+<td id="clueScreen2" style="height:100%;vertical-align:middle"></td>
+</table>
+</div>
+
+</body>
+</html>
